@@ -64,6 +64,7 @@ def download_audio(youtube_url):
         # Pobranie ścieżki audio i zapis jako MP3
         cmd_download_audio = [
             "yt-dlp",
+            "--live-from-start",
             "-x", "--audio-format", "mp3",
             "-o", output_filename,
             youtube_url
