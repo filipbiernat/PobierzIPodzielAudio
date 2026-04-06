@@ -111,3 +111,5 @@ def handle_clipboard_and_dialog():
 
 if __name__ == "__main__":
     handle_clipboard_and_dialog()
+
+#pip install -U "yt-dlp[default]"

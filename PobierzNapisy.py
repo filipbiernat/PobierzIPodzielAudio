@@ -8,6 +8,8 @@ import re
 
 import os
 
+import glob
+
 def create_input_dialog(title, label_text, default_value, button_text):
     """
     Tworzy okno dialogowe do wprowadzania danych przez użytkownika.
@@ -45,7 +47,7 @@ def download_audio(youtube_url):
             "--get-title",
             youtube_url
         ]
-        video_title = subprocess.check_output(cmd_get_title).decode("utf-8").strip()
+        video_title = subprocess.check_output(cmd_get_title, encoding="utf-8", errors="replace").strip()
         
         create_input_dialog("Nazwa pliku z napisami", "Podaj nazwę pliku:", video_title, "Zapisz")
         output_filename_without_extension = user_input.replace("/", " ").strip()
@@ -62,11 +64,19 @@ def download_audio(youtube_url):
             youtube_url
         ]
         
-        result = subprocess.run(cmd_download_subs, capture_output=True, text=True)
+        result = subprocess.run(cmd_download_subs, capture_output=True, text=True, encoding="utf-8", errors="replace")
         
         # Sprawdź czy napisy istnieją
         subs_filename = f"{output_filename_without_extension}.pl.vtt"
-        if os.path.exists(subs_filename):
+        if not os.path.exists(subs_filename):
+            # yt-dlp może nieznacznie zmienić nazwę pliku – szukaj przez glob
+            matches = glob.glob("*.pl.vtt")
+            if matches:
+                subs_filename = max(matches, key=os.path.getmtime)
+            else:
+                subs_filename = None
+
+        if subs_filename and os.path.exists(subs_filename):
             absolute_path = os.path.abspath(subs_filename)
             print(f"Napisy automatyczne zapisane jako: {absolute_path}")
             return absolute_path
