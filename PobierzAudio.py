@@ -56,7 +56,12 @@ def download_audio(youtube_url):
         # Zapytanie użytkownika o nazwę pliku
         create_input_dialog("Nazwa pliku audio", "Podaj nazwę pliku:", video_title, "Zapisz")
 
-        output_filename_without_extension = user_input.replace("/", " ").strip()
+        # Zastąp znaki niedozwolone w nazwach plików Windows
+        illegal_chars = r'\/:*?"<>|'
+        output_filename_without_extension = user_input
+        for ch in illegal_chars:
+            output_filename_without_extension = output_filename_without_extension.replace(ch, "#")
+        output_filename_without_extension = output_filename_without_extension.strip()
         output_filename = f"{output_filename_without_extension}.mp3"
         
         print(f"Pobieranie ścieżki audio z filmu: \"{video_title}\" do pliku: \"{output_filename}\"")
