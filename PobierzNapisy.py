@@ -1,13 +1,9 @@
 import subprocess
-
+import sys
 import tkinter as tk
-
 import pyperclip  # Do obsługi schowka
-
 import re
-
 import os
-
 import glob
 
 def create_input_dialog(title, label_text, default_value, button_text):
@@ -27,6 +23,8 @@ def create_input_dialog(title, label_text, default_value, button_text):
     root = tk.Tk()
     root.title(title)
     root.geometry("600x150")
+    root.wm_attributes('-topmost', 1)  # Okno na wierzchu
+    root.focus_force()                 # Wymuszenie focusu
     # Etykieta z instrukcją
     label = tk.Label(root, text=label_text, font=("Arial", 12))
     label.pack(pady=10)
@@ -106,19 +104,29 @@ def get_youtube_url():
 
 def handle_clipboard_and_dialog():
     """
-    Funkcja przetwarzająca zawartość schowka lub wywołująca okno dialogowe do wprowadzenia URL.
+    Funkcja przetwarzająca URL i wywołująca okno dialogowe.
+    Priorytet źródła URL:
+      1. sys.argv[1] — przekazany przez Usługę (bezpieczne równoległe uruchamianie)
+      2. Schowek        — fallback przy ręcznym uruchomieniu
+      3. Okno dialogowe — gdy brak URL w obu źródłach
     Zwraca ścieżkę nowego pliku z napisami.
     :return: Ścieżka do pobranego pliku z napisami
     """
-    # Sprawdzenie zawartości schowka
-    clipboard_content = pyperclip.paste().strip()
     youtube_pattern = re.compile(r"^https?://(www\.)?(youtube\.com|youtu\.be)/.*")
-    # Jeśli w schowku znajduje się link do YouTube, użyj go, w przeciwnym razie wywołaj okno dialogowe
+
+    # 1. URL jako argument wiersza poleceń (przekazany przez Usluga.py)
+    if len(sys.argv) > 1 and youtube_pattern.match(sys.argv[1]):
+        print(f"URL przekazany jako argument: {sys.argv[1]}")
+        return download_audio(sys.argv[1])
+
+    # 2. Schowek (ręczne uruchomienie)
+    clipboard_content = pyperclip.paste().strip()
     if youtube_pattern.match(clipboard_content):
         print(f"Znaleziono link w schowku: {clipboard_content}")
         return download_audio(clipboard_content)
-    else:
-        return get_youtube_url()
+
+    # 3. Okno dialogowe
+    return get_youtube_url()
 
 if __name__ == "__main__":
     handle_clipboard_and_dialog()

@@ -1,3 +1,4 @@
+import sys
 import PobierzAudio
 import PodzielAudio
 
@@ -6,8 +7,8 @@ print("🔹 Pobieranie pliku audio...")
 audio_file_path = PobierzAudio.handle_clipboard_and_dialog()
 
 if not audio_file_path:
-    print("❌ Nie udało się pobrać pliku audio. Zamykanie skryptu.")
-    exit
+    print("Nie udalo sie pobrac pliku audio. Zamykanie skryptu.")
+    sys.exit(1)
 
 print(f"✅ Pobrano plik: {audio_file_path}")
 

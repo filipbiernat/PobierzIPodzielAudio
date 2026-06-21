@@ -1,4 +1,5 @@
 import subprocess
+import sys
 import tkinter as tk
 import pyperclip  # Do obsługi schowka
 import re
@@ -21,6 +22,8 @@ def create_input_dialog(title, label_text, default_value, button_text):
     root = tk.Tk()
     root.title(title)
     root.geometry("600x150")
+    root.wm_attributes('-topmost', 1)  # Okno na wierzchu
+    root.focus_force()                 # Wymuszenie focusu
     
     # Etykieta z instrukcją
     label = tk.Label(root, text=label_text, font=("Arial", 12))
@@ -69,16 +72,28 @@ def download_audio(youtube_url):
         # Pobranie ścieżki audio i zapis jako MP3
         cmd_download_audio = [
             "yt-dlp",
-            "--live-from-start",
             "-x", "--audio-format", "mp3",
+            "--audio-quality", "0",
+            "--no-continue",          # Nie wznawiaj poprzedniego pobierania (.part)
             "-o", output_filename,
             youtube_url
         ]
         subprocess.run(cmd_download_audio)
         
-        # Zwrot ścieżki do pobranego pliku
+        # Weryfikacja: czy plik naprawdę istnieje?
         absolute_path = os.path.abspath(output_filename)
-        print(f"Ścieżka audio zapisana jako: {absolute_path}")
+        if not os.path.isfile(absolute_path):
+            # yt-dlp mógł nieznacznie zmienić nazwę — szukamy najnowszego .mp3
+            import glob
+            candidates = glob.glob("*.mp3")
+            if candidates:
+                absolute_path = os.path.abspath(max(candidates, key=os.path.getmtime))
+                print(f"Znaleziono plik pod zmienioną nazwą: {absolute_path}")
+            else:
+                print("Nie znaleziono żadnego pliku .mp3 w katalogu roboczym!")
+                return None
+        
+        print(f"Sciezka audio zapisana jako: {absolute_path}")
         return absolute_path
 
     except Exception as e:
@@ -99,20 +114,29 @@ def get_youtube_url():
 
 def handle_clipboard_and_dialog():
     """
-    Funkcja przetwarzająca zawartość schowka lub wywołująca okno dialogowe do wprowadzenia URL.
+    Funkcja przetwarzająca URL i wywołująca okno dialogowe.
+    Priorytet źródła URL:
+      1. sys.argv[1] — przekazany przez Usługę (bezpieczne równoległe uruchamianie)
+      2. Schowek        — fallback przy ręcznym uruchomieniu
+      3. Okno dialogowe — gdy brak URL w obu źródłach
     Zwraca ścieżkę nowego pliku audio.
     :return: Ścieżka do pobranego pliku MP3
     """
-    # Sprawdzenie zawartości schowka
-    clipboard_content = pyperclip.paste().strip()
     youtube_pattern = re.compile(r"^https?://(www\.)?(youtube\.com|youtu\.be)/.*")
 
-    # Jeśli w schowku znajduje się link do YouTube, użyj go, w przeciwnym razie wywołaj okno dialogowe
+    # 1. URL jako argument wiersza poleceń (przekazany przez Usluga.py)
+    if len(sys.argv) > 1 and youtube_pattern.match(sys.argv[1]):
+        print(f"URL przekazany jako argument: {sys.argv[1]}")
+        return download_audio(sys.argv[1])
+
+    # 2. Schowek (ręczne uruchomienie)
+    clipboard_content = pyperclip.paste().strip()
     if youtube_pattern.match(clipboard_content):
         print(f"Znaleziono link w schowku: {clipboard_content}")
         return download_audio(clipboard_content)
-    else:
-        return get_youtube_url()
+
+    # 3. Okno dialogowe
+    return get_youtube_url()
 
 if __name__ == "__main__":
     handle_clipboard_and_dialog()
