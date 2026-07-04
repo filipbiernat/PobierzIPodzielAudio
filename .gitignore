@@ -169,3 +169,21 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# PodzielAudio — pliki lokalne
+# WinSW binarny (pobierany automatycznie przez ZarejestrujUsluge.py)
+PodzielAudio-service.exe
+# Generowany przez ZarejestrujUsluge.py (zawiera ścieżki lokalne)
+PodzielAudio-service.xml
+# Logi WinSW
+winsw-logs/
+# Logi usługi i watchdoga
+Usluga.log
+Watchdog.log
+# Tymczasowe
+query
+# Pliki multimedialne
+*.mp3
+*.mp4
+*.webm
+*.m4a

@@ -155,6 +155,11 @@ def _run_script(task_id: str, script_name: str, youtube_url: str):
         except Exception as exc:
             emit(f"⚠️  Nie udało się skopiować do schowka: {exc}")
 
+        # CREATE_NO_WINDOW: gdy usługa Windows nie ma konsoli, bez tej flagi
+        # Windows tworzy nowe okno konsoli dla procesu potomnego — stdout
+        # trafia do tej konsoli zamiast do PIPE, więc Tampermonkey nic nie widzi.
+        _no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+
         process = subprocess.Popen(
             [python_exe, script_path, youtube_url],  # URL jako argv[1]
             cwd=SCRIPT_DIR,
@@ -164,6 +169,7 @@ def _run_script(task_id: str, script_name: str, youtube_url: str):
             encoding="utf-8",
             errors="replace",
             env=env,
+            creationflags=_no_window,
         )
 
         # Czytaj logi na bieżąco — linia po linii
@@ -201,6 +207,7 @@ def _run_script(task_id: str, script_name: str, youtube_url: str):
                     encoding="utf-8",
                     errors="replace",
                     env=env,
+                    creationflags=_no_window,
                 )
                 for upd_line in update_proc.stdout:
                     emit(f"  {upd_line.rstrip()}")
