@@ -123,7 +123,7 @@ app = Flask(__name__)
 CORS(app)  # Pozwala na żądania z youtube.com
 
 
-def _run_script(task_id: str, script_name: str, youtube_url: str):
+def _run_script(task_id: str, script_name: str, youtube_url: str, title: str = ""):
     """Uruchamia skrypt w osobnym procesie, zbierając logi na bieżąco."""
     script_path = os.path.join(SCRIPT_DIR, script_name)
 
@@ -139,11 +139,31 @@ def _run_script(task_id: str, script_name: str, youtube_url: str):
 
     emit(f"▶  Uruchamiam {script_name}")
     emit(f"🌐 URL: {youtube_url}")
+    if title:
+        emit(f"🏷️  Tytuł: {title}")
 
     try:
         python_exe = sys.executable
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
+
+        # Usługa Windows nie dziedziczy pełnego PATH użytkownika.
+        # Używamy glob żeby znaleźć narzędzia we wszystkich profilach użytkowników —
+        # os.path.expanduser("~") zwraca C:\Windows\...\systemprofile dla LocalSystem,
+        # więc nie można nim wyznaczyć katalogów narzędzi zainstalowanych przez użytkownika.
+        import glob as _glob
+        _extra_paths = []
+        for _p in _glob.glob(r"C:\Users\*\AppData\Local\ffmpegio\ffmpeg-downloader\ffmpeg\bin"):
+            _extra_paths.append(_p)
+        for _p in _glob.glob(r"C:\Users\*\.deno\bin"):
+            _extra_paths.append(_p)
+        for _p in _glob.glob(r"C:\Users\*\scoop\shims"):
+            _extra_paths.append(_p)
+        for _p in _glob.glob(r"C:\Program Files\nodejs"):
+            _extra_paths.append(_p)
+        if _extra_paths:
+            _current_path = env.get("PATH", "")
+            env["PATH"] = os.pathsep.join(_extra_paths) + (os.pathsep + _current_path if _current_path else "")
 
         # URL przekazywany jako argument — eliminuje race condition na schowku
         # przy równoległym uruchamianiu wielu skryptów.
@@ -160,8 +180,13 @@ def _run_script(task_id: str, script_name: str, youtube_url: str):
         # trafia do tej konsoli zamiast do PIPE, więc Tampermonkey nic nie widzi.
         _no_window = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+        # argv[1] = URL, argv[2] = tytuł (opcjonalny, podany przez Tampermonkey)
+        cmd = [python_exe, script_path, youtube_url]
+        if title:
+            cmd.append(title)
+
         process = subprocess.Popen(
-            [python_exe, script_path, youtube_url],  # URL jako argv[1]
+            cmd,
             cwd=SCRIPT_DIR,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,   # Łącz stderr ze stdout
@@ -240,6 +265,7 @@ def run_action():
     data = request.get_json(silent=True) or {}
     action = data.get("action", "")
     url = data.get("url", "")
+    title = data.get("title", "").strip()  # Tytuł podany przez Tampermonkey (opcjonalny)
 
     if action not in ACTIONS:
         return jsonify({
@@ -253,13 +279,13 @@ def run_action():
     script_name = ACTIONS[action]
     task_id = str(uuid.uuid4())
 
-    log.info("📨  Odebrano żądanie: action=%s  url=%s  task_id=%s", action, url, task_id)
+    log.info("📨  Odebrano żądanie: action=%s  url=%s  title=%r  task_id=%s", action, url, title, task_id)
 
     _task_new(task_id, script_name, url)
 
     thread = threading.Thread(
         target=_run_script,
-        args=(task_id, script_name, url),
+        args=(task_id, script_name, url, title),
         daemon=True,
     )
     thread.start()
@@ -270,6 +296,7 @@ def run_action():
         "action": action,
         "script": script_name,
         "url": url,
+        "title": title,
     })
 
 

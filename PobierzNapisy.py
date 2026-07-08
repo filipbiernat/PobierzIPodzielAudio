@@ -5,6 +5,7 @@ import pyperclip  # Do obsługi schowka
 import re
 import os
 import glob
+import NarzedziaYtdlp  # Lokalizowanie deno niezależnie od PATH
 
 def create_input_dialog(title, label_text, default_value, button_text):
     """
@@ -38,20 +39,28 @@ def create_input_dialog(title, label_text, default_value, button_text):
     # Uruchomienie pętli zdarzeń
     root.mainloop()
 
-def download_audio(youtube_url):
+def download_audio(youtube_url, title=None):
     try:
-        cmd_get_title = [
-            "yt-dlp",
-            "--get-title",
-            youtube_url
-        ]
-        video_title = subprocess.check_output(cmd_get_title, encoding="utf-8", errors="replace").strip()
-        
-        create_input_dialog("Nazwa pliku z napisami", "Podaj nazwę pliku:", video_title, "Zapisz")
-        output_filename_without_extension = user_input.replace("/", " ").strip()
+        if title:
+            # Tytuł przekazany z zewnątrz (np. z Tampermonkey) — pomijamy dialog
+            video_title = title
+            print(f"Tytuł przekazany jako argument: \"{video_title}\"")
+        else:
+            cmd_get_title = [
+                "yt-dlp",
+                "--get-title",
+                youtube_url
+            ]
+            video_title = subprocess.check_output(cmd_get_title, encoding="utf-8", errors="replace").strip()
+
+            create_input_dialog("Nazwa pliku z napisami", "Podaj nazwę pliku:", video_title, "Zapisz")
+            video_title = user_input
+
+        output_filename_without_extension = video_title.replace("/", " ").strip()
 
         cmd_download_subs = [
             "yt-dlp",
+            *NarzedziaYtdlp.extra_ytdlp_flags(need_ffmpeg=False, need_deno=True),
             "--ignore-errors",
             "--retries", "10",
             "--write-auto-subs",
@@ -62,7 +71,13 @@ def download_audio(youtube_url):
             youtube_url
         ]
         
-        result = subprocess.run(cmd_download_subs, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        result = subprocess.run(cmd_download_subs,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace")
+        if result.stdout:
+            print(result.stdout, end="", flush=True)
+        if result.returncode != 0:
+            print(f"yt-dlp zakończył z kodem błędu: {result.returncode}")
         
         # Sprawdź czy napisy istnieją
         subs_filename = f"{output_filename_without_extension}.pl.vtt"
@@ -83,7 +98,7 @@ def download_audio(youtube_url):
             print("- Film nie ma automatycznych napisów")
             print("- YouTube zablokował pobieranie (spróbuj ponownie za kilka godzin)")
             print("- Błąd tymczasowy (sprawdź połączenie internetowe)")
-            print("Pełny log błędu:\n", result.stderr)
+            print("Pełny log błędu był wypisany powyżej.")
             return None
             
     except Exception as e:
@@ -109,21 +124,27 @@ def handle_clipboard_and_dialog():
       1. sys.argv[1] — przekazany przez Usługę (bezpieczne równoległe uruchamianie)
       2. Schowek        — fallback przy ręcznym uruchomieniu
       3. Okno dialogowe — gdy brak URL w obu źródłach
+    Priorytet źródła tytułu:
+      1. sys.argv[2] — przekazany przez Usługę (podany przez Tampermonkey)
+      2. Okno dialogowe — gdy brak tytułu (interaktywne pytanie)
     Zwraca ścieżkę nowego pliku z napisami.
     :return: Ścieżka do pobranego pliku z napisami
     """
     youtube_pattern = re.compile(r"^https?://(www\.)?(youtube\.com|youtu\.be)/.*")
 
+    # Tytuł opcjonalnie z argv[2] (przekazany przez Tampermonkey przez Usługę)
+    title = sys.argv[2].strip() if len(sys.argv) > 2 and sys.argv[2].strip() else None
+
     # 1. URL jako argument wiersza poleceń (przekazany przez Usluga.py)
     if len(sys.argv) > 1 and youtube_pattern.match(sys.argv[1]):
         print(f"URL przekazany jako argument: {sys.argv[1]}")
-        return download_audio(sys.argv[1])
+        return download_audio(sys.argv[1], title=title)
 
     # 2. Schowek (ręczne uruchomienie)
     clipboard_content = pyperclip.paste().strip()
     if youtube_pattern.match(clipboard_content):
         print(f"Znaleziono link w schowku: {clipboard_content}")
-        return download_audio(clipboard_content)
+        return download_audio(clipboard_content, title=title)
 
     # 3. Okno dialogowe
     return get_youtube_url()

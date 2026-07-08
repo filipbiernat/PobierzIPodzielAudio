@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PodzielAudio — YouTube
 // @namespace    https://github.com/filipbiernat/PodzielAudio
-// @version      2.0
+// @version      2.1
 // @description  Pobieranie audio / napisów z YouTube przez lokalną usługę — z panelem logów na żywo
 // @author       Filip Biernat
 // @match        https://www.youtube.com/*
@@ -20,10 +20,10 @@
     const POLL_INTERVAL_MS = 800;  // Jak często odpytujemy serwer o nowe logi
 
     const ACTIONS = [
-        { id: "pobierz_audio",            label: "📥  Pobierz Audio" },
-        { id: "pobierz_i_podziel_audio",  label: "📥🔪  Pobierz i Podziel Audio" },
-        { id: "pobierz_napisy",           label: "📝  Pobierz Napisy" },
-        { id: "pobierz_audio_gdrive",     label: "🤖📁  Pobierz i wyślij na GDrive" },
+        { id: "pobierz_audio",            label: "📥  Pobierz Audio",              askTitle: true },
+        { id: "pobierz_i_podziel_audio",  label: "📥🔪  Pobierz i Podziel Audio",  askTitle: true },
+        { id: "pobierz_napisy",           label: "📝  Pobierz Napisy",             askTitle: true },
+        { id: "pobierz_audio_gdrive",     label: "🤖📁  Pobierz i wyślij na GDrive", askTitle: true },
     ];
 
     // ── Style ────────────────────────────────────────────────────────────────
@@ -366,9 +366,28 @@
     }
 
     // ── Komunikacja z usługą ─────────────────────────────────────────────────
+    function getYouTubeTitle() {
+        // Priorytetowo z metadanych OGP / h1, jako fallback document.title
+        const ogTitle = document.querySelector('meta[property="og:title"]')?.content;
+        const h1 = document.querySelector("h1.ytd-watch-metadata yt-formatted-string, h1.title")?.textContent?.trim();
+        const raw = ogTitle || h1 || document.title || "";
+        // Usuń suffix " - YouTube" jeśli występuje
+        return raw.replace(/\s*-\s*YouTube\s*$/i, "").trim();
+    }
+
     function callService(action) {
         const url = window.location.href;
-        const actionLabel = ACTIONS.find(a => a.id === action)?.label || action;
+        const actionDef = ACTIONS.find(a => a.id === action);
+        const actionLabel = actionDef?.label || action;
+
+        // Zapytaj o tytuł w przeglądarce (tylko dla akcji audio)
+        let title = "";
+        if (actionDef?.askTitle) {
+            const suggested = getYouTubeTitle();
+            const answer = window.prompt("🏷️ Podaj nazwę pliku audio:", suggested);
+            if (answer === null) return;   // Użytkownik anulował
+            title = answer.trim();
+        }
 
         openPanel(actionLabel);
         appendLine(`Łączę z usługą…`);
@@ -377,7 +396,7 @@
             method: "POST",
             url: `${SERVICE_URL}/run`,
             headers: { "Content-Type": "application/json" },
-            data: JSON.stringify({ action, url }),
+            data: JSON.stringify({ action, url, title }),
             onload(res) {
                 if (res.status === 200) {
                     const data = JSON.parse(res.responseText);
