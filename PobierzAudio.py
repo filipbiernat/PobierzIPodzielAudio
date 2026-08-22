@@ -42,6 +42,82 @@ def create_input_dialog(title, label_text, default_value, button_text):
     # Uruchomienie pętli zdarzeń
     root.mainloop()
 
+def _run_ytdlp(cmd: list[str]) -> tuple[int, bool]:
+    """
+    Uruchamia yt-dlp i strumieniuje wyjście na bieżąco.
+    Zwraca (kod_wyjścia, czy_błąd_http_4xx).
+
+    Rozpoznawane błędy HTTP sygnalizujące przestarzałą wersję yt-dlp:
+      - HTTP Error 403: Forbidden  — YouTube blokuje żądanie
+      - HTTP Error 410: Gone       — format/endpoint wycofany
+    """
+    http_block_error = False
+    ytdlp_proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    for ytdlp_line in ytdlp_proc.stdout:
+        print(ytdlp_line, end="", flush=True)
+        if re.search(r"HTTP Error (403|410)", ytdlp_line):
+            http_block_error = True
+    ytdlp_proc.wait()
+    return ytdlp_proc.returncode, http_block_error
+
+
+def _auto_update_ytdlp() -> bool:
+    """
+    Próbuje zaktualizować yt-dlp przez pip.
+    Zwraca True, jeśli aktualizacja się powiodła i zainstalowano nowszą wersję.
+    """
+    print("\n🔄 Wykryto blokadę YouTube (HTTP 403/410) — aktualizuję yt-dlp…")
+    try:
+        # Pobierz aktualną wersję przed aktualizacją
+        old_version = subprocess.check_output(
+            [sys.executable, "-m", "pip", "show", "yt-dlp"],
+            text=True, encoding="utf-8", errors="replace",
+        )
+        old_ver = ""
+        for line in old_version.splitlines():
+            if line.startswith("Version:"):
+                old_ver = line.split(":", 1)[1].strip()
+                break
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp[default]"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        print(result.stdout)
+        if result.returncode != 0:
+            print(f"⚠️  Aktualizacja yt-dlp nie powiodła się:\n{result.stderr}")
+            return False
+
+        # Sprawdź nową wersję
+        new_version = subprocess.check_output(
+            [sys.executable, "-m", "pip", "show", "yt-dlp"],
+            text=True, encoding="utf-8", errors="replace",
+        )
+        new_ver = ""
+        for line in new_version.splitlines():
+            if line.startswith("Version:"):
+                new_ver = line.split(":", 1)[1].strip()
+                break
+
+        if new_ver and new_ver != old_ver:
+            print(f"✅ yt-dlp zaktualizowany: {old_ver} → {new_ver}")
+            return True
+        else:
+            print(f"ℹ️  yt-dlp już jest w najnowszej wersji ({new_ver}) — aktualizacja nie pomoże.")
+            return False
+
+    except Exception as e:
+        print(f"⚠️  Błąd podczas aktualizacji yt-dlp: {e}")
+        return False
+
+
 def download_audio(youtube_url, title=None):
     """
     Pobiera ścieżkę audio z podanego linku YouTube i zwraca ścieżkę do pobranego pliku.
@@ -89,21 +165,31 @@ def download_audio(youtube_url, title=None):
             "-o", output_filename,
             youtube_url
         ]
-        # Używamy Popen zamiast run, żeby strumieniować wyjście yt-dlp na bieżąco
-        # i zobaczyć ewentualne błędy (np. brak ffmpeg, niedostępny film itp.)
-        ytdlp_proc = subprocess.Popen(
-            cmd_download_audio,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-        for ytdlp_line in ytdlp_proc.stdout:
-            print(ytdlp_line, end="", flush=True)
-        ytdlp_proc.wait()
-        if ytdlp_proc.returncode != 0:
-            print(f"yt-dlp zakończył z kodem błędu: {ytdlp_proc.returncode}")
+
+        # Pierwsza próba pobrania
+        returncode, http_block = _run_ytdlp(cmd_download_audio)
+
+        # Auto-recovery: jeśli YouTube zablokował żądanie (403/410),
+        # aktualizujemy yt-dlp i ponawiamy pobieranie jednokrotnie.
+        if returncode != 0 and http_block:
+            print(f"yt-dlp zakończył z kodem błędu: {returncode}")
+            if _auto_update_ytdlp():
+                print("🔁 Ponawiam pobieranie po aktualizacji yt-dlp…\n")
+                # Przebuduj komendę — flagi mogą się nie zmienić, ale
+                # zaktualizowany yt-dlp użyje nowych ekstraktorów.
+                cmd_download_audio = [
+                    "yt-dlp",
+                    *NarzedziaYtdlp.extra_ytdlp_flags(need_ffmpeg=True, need_deno=True),
+                    "-x", "--audio-format", "mp3",
+                    "--audio-quality", "0",
+                    "--no-continue",
+                    "-o", output_filename,
+                    youtube_url
+                ]
+                returncode, _ = _run_ytdlp(cmd_download_audio)
+
+        if returncode != 0:
+            print(f"yt-dlp zakończył z kodem błędu: {returncode}")
         
         # Weryfikacja: czy plik naprawdę istnieje?
         absolute_path = os.path.abspath(output_filename)
